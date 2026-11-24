@@ -38,7 +38,19 @@ public sealed class WaveformView : Control
         ["CH4"] = Color.FromArgb(60, 220, 60),
         ["MATH"] = Color.FromArgb(255, 80, 80),
     };
-    public static Color ColorOf(string src) => Colors.TryGetValue(src, out var c) ? c : Color.White;
+    private static readonly Color[] Extra =
+    [
+        Color.FromArgb(255, 150, 40), Color.FromArgb(170, 130, 255), Color.FromArgb(120, 255, 220),
+        Color.FromArgb(255, 255, 255), Color.FromArgb(255, 170, 170), Color.FromArgb(160, 200, 120),
+    ];
+
+    public static Color ColorOf(string src)
+    {
+        if (Colors.TryGetValue(src, out var c)) return c;
+        int h = 0;
+        foreach (var ch in src.ToUpperInvariant()) h = h * 31 + ch;
+        return Extra[(h & 0x7fffffff) % Extra.Length];
+    }
 
     public const int XDiv = 10, YDiv = 8;
     private const int LeftM = 36, RightM = 12, TopM = 24, BottomM = 46;

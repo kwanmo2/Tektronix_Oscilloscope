@@ -30,6 +30,7 @@ dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true 
   - 왼쪽 채널 마커를 드래그해 위치 조절. 선택 채널은 Shift+휠로 V/div, Ctrl+휠이나 ↑↓로 위치 조절
   - 마우스 위치의 시간과 각 채널 값 표시. 많이 확대하면 샘플 점이 보임
 - 채널 라벨: 처음에는 스코프의 `CHx:LABel` 값을 쓰고, 앱에서 고친 값은 채널별로 기억한다. 그래프, 값 표시, CSV 헤더에 모두 나온다.
+- 파형 불러오기: 저장한 CSV를 **[파형 불러오기 (CSV)…]**로 열거나 창에 끌어다 놓으면 된다. 채널, 라벨, 단위를 헤더에서 되살린다. 시간 열을 공유하는 형식과 채널별 시간/값 쌍 형식을 모두 읽는다. 스코프 V/div 정보는 CSV에 없으므로 처음에는 자동 스케일로 연다.
 - 레코드 길이(1k~10M) 설정. 바꿀 때 현재 time/div를 유지하려고 시도한다.
 - Run / Stop / Single
 - 저장 위치 기본값: `문서\TekCapture\<모델>_<날짜_시간>_screen.png / _wave.csv`

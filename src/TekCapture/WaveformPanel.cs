@@ -98,10 +98,12 @@ public sealed class WaveformPanel : UserControl
         SyncFromView();
     }
 
-    public void SetWaveforms(List<Waveform> waves)
+    /// <param name="applySavedLabels">false for files loaded from disk: keep the labels stored in the file.</param>
+    public void SetWaveforms(List<Waveform> waves, bool applySavedLabels = true)
     {
-        foreach (var w in waves)
-            if (SavedLabels.TryGetValue(w.Source, out var lbl)) w.Label = lbl;
+        if (applySavedLabels)
+            foreach (var w in waves)
+                if (SavedLabels.TryGetValue(w.Source, out var lbl)) w.Label = lbl;
         View.SetWaveforms(waves);
         RebuildRows();
         SyncFromView();
@@ -158,7 +160,7 @@ public sealed class WaveformPanel : UserControl
             });
             OnCommit(txtLabel, s =>
             {
-                if (s.Trim() == c.Label && SavedLabels.ContainsKey(c.Source)) return;
+                if (s.Trim() == c.Label) return;
                 c.Label = s;
                 SavedLabels[c.Source] = c.Label;
                 LabelsChanged?.Invoke(this, EventArgs.Empty);

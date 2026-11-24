@@ -7,6 +7,24 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length >= 3 && args[0] == "--loadtest")
+        {
+            // TekCapture.exe --loadtest <csv> <outdir>
+            Directory.CreateDirectory(args[2]);
+            using var log = new StreamWriter(Path.Combine(args[2], "loadtest.log"));
+            try
+            {
+                var sw = Stopwatch.StartNew();
+                var waves = CsvImport.Read(args[1]);
+                log.WriteLine($"Loaded in {sw.ElapsedMilliseconds} ms");
+                foreach (var w in waves)
+                    log.WriteLine($"{w.Source} label='{w.Label}' {w.YUnit}: {w.Length} pts, dt={w.XIncr:G6}, t0={w.XZero:G6}, min={w.Min:G4}, max={w.Max:G4}, mean={w.Mean:G4}");
+                RenderViewer(waves, args[2]);
+                log.WriteLine("OK");
+                return 0;
+            }
+            catch (Exception ex) { log.WriteLine("FAIL: " + ex); return 1; }
+        }
         if (args.Length >= 2 && args[0] == "--selftest")
             return SelfTest(args[1], args[2..]);
 

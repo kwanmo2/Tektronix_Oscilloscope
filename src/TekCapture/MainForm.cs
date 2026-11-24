@@ -91,7 +91,8 @@ public sealed class MainForm : Form
             });
         };
 
-        left.Controls.Add(Hdr("저장"));
+        left.Controls.Add(Hdr("파일"));
+        left.Controls.Add(Btn("파형 불러오기 (CSV)…", LoadCsvDialog, false));
         left.Controls.Add(_chkAutoSave);
         var folderRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
         var btnBrowse = new Button { Text = "...", Width = 30, Height = 24 };
@@ -120,6 +121,19 @@ public sealed class MainForm : Form
 
         _btnRefresh.Click += async (_, _) => await RunOp("장치 검색", RefreshResources);
         _btnConnect.Click += async (_, _) => await RunOp(_scope == null ? "연결" : "연결 해제", ToggleConnect);
+
+        // drag & drop a CSV anywhere on the window
+        AllowDrop = true;
+        DragEnter += (_, e) =>
+        {
+            if (e.Data?.GetData(DataFormats.FileDrop) is string[] f && f.Length > 0 && f[0].EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+                e.Effect = DragDropEffects.Copy;
+        };
+        DragDrop += async (_, e) =>
+        {
+            if (e.Data?.GetData(DataFormats.FileDrop) is string[] f && f.Length > 0)
+                await RunOp("파형 불러오기", () => LoadCsv(f[0]));
+        };
 
         LoadSettings();
         _wave.LabelsChanged += (_, _) => SaveSettings();
@@ -258,7 +272,33 @@ public sealed class MainForm : Form
         _lastWaves = waves;
         _wave.SetWaveforms(waves);
         _tabs.SelectedTab = _tabWave;
+        _tabWave.Text = "파형";
         if (_chkAutoSave.Checked) await SaveCsvAsync();
+    }
+
+    private async Task LoadCsvDialog()
+    {
+        using var dlg = new OpenFileDialog
+        {
+            Title = "파형 CSV 불러오기",
+            Filter = "CSV 파일 (*.csv)|*.csv|모든 파일 (*.*)|*.*",
+            InitialDirectory = Directory.Exists(Folder) ? Folder : DefaultFolder,
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        await LoadCsv(dlg.FileName);
+    }
+
+    private async Task LoadCsv(string path)
+    {
+        Log($"불러오는 중: {path} ({new FileInfo(path).Length / 1e6:F1} MB)");
+        var progress = new Progress<string>(Log);
+        var waves = await Task.Run(() => CsvImport.Read(path, progress));
+        _lastWaves = waves;
+        _wave.SetWaveforms(waves, applySavedLabels: false);
+        _tabs.SelectedTab = _tabWave;
+        _tabWave.Text = $"파형 — {Path.GetFileName(path)}";
+        foreach (var w in waves)
+            Log($"  {w.DisplayName}: {w.Length:N0} pts, dt {Eng.Format(w.XIncr, w.XUnit)}, {Eng.Format(w.TStart, w.XUnit)} ~ {Eng.Format(w.TEnd, w.XUnit)}");
     }
 
     private void SavePng(string stamp)
