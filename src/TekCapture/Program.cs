@@ -25,6 +25,12 @@ internal static class Program
             }
             catch (Exception ex) { log.WriteLine("FAIL: " + ex); return 1; }
         }
+        if (args.Length >= 3 && args[0] == "--uitest")
+        {
+            // TekCapture.exe --uitest <csv> <outdir> [ko|en]
+            ApplicationConfiguration.Initialize();
+            return MainForm.UiTest(args[1], args[2], args.Length >= 4 ? args[3] : null);
+        }
         if (args.Length >= 2 && args[0] == "--selftest")
             return SelfTest(args[1], args[2..]);
 
@@ -135,7 +141,14 @@ internal static class Program
         Snap("view_scope.png");
         panel.View.StackChannels();
         Snap("view_stacked.png");
-        panel.View.SetTimePerDiv(panel.View.MinDx * 2, panel.View.TCenter);
+        // ticks: A/B snapped to edges of the selected channel, readout box + side panel
+        var v = panel.View;
+        v.Selected = v.Channels.Count > 1 ? v.Channels[1] : v.Channels[0];
+        v.SetTimePerDiv(v.FullSpan / 40, (v.FullT0 + v.FullT1) / 2);
+        v.SetTick('A', v.T0 + (v.T1 - v.T0) * 0.25, snap: true);
+        v.SetTick('B', v.T0 + (v.T1 - v.T0) * 0.7, snap: true);
+        Snap("view_ticks.png");
+        v.SetTimePerDiv(v.MinDx * 2, v.TCenter);
         Snap("view_zoomed.png");
     }
 }

@@ -44,12 +44,32 @@ public sealed class WaveformView : Control
         Color.FromArgb(255, 255, 255), Color.FromArgb(255, 170, 170), Color.FromArgb(160, 200, 120),
     ];
 
-    public static Color ColorOf(string src)
+    /// <summary>Trace colors chosen by the user, by source ("CH1"). Override the scope palette everywhere
+    /// (viewer, channel boxes, menu) and are saved in settings.json → "Colors".</summary>
+    public static Dictionary<string, Color> CustomColors { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public static Color ColorOf(string src) => CustomColors.TryGetValue(src, out var c) ? c : DefaultColorOf(src);
+
+    /// <summary>Scope-style default color (CH1 yellow, CH2 cyan, CH3 magenta, CH4 green).</summary>
+    public static Color DefaultColorOf(string src)
     {
-        if (Colors.TryGetValue(src, out var c)) return c;
+        if (Colors.TryGetValue(src.ToUpperInvariant(), out var c)) return c;
         int h = 0;
         foreach (var ch in src.ToUpperInvariant()) h = h * 31 + ch;
         return Extra[(h & 0x7fffffff) % Extra.Length];
+    }
+
+    /// <summary>Default palette, offered as custom colors in the color dialog.</summary>
+    public static IEnumerable<Color> Palette => Colors.Values.Concat(Extra);
+
+    public static string ToHex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+
+    public static bool TryParseHex(string? s, out Color c)
+    {
+        c = default;
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        try { c = ColorTranslator.FromHtml(s.Trim()); return !c.IsEmpty; }
+        catch { return false; }
     }
 
     public const int XDiv = 10, YDiv = 8;
@@ -72,6 +92,62 @@ public sealed class WaveformView : Control
     public event EventHandler? ViewChanged;
     public event EventHandler? SelectionChanged;
 
+    // ------------------------------------------------------------------ ticks (time cursors A/B)
+
+    public double? TickA { get; private set; }
+    public double? TickB { get; private set; }
+    /// <summary>Raised when a tick is placed, moved (drag finished) or cleared.</summary>
+    public event EventHandler? TicksChanged;
+
+    public static readonly Color TickAColor = Color.FromArgb(255, 165, 0);
+    public static readonly Color TickBColor = Color.FromArgb(190, 140, 255);
+
+    /// <summary>Sets tick 'A' or 'B'. With snap, moves to the nearest edge of the selected channel (±8 px).</summary>
+    public void SetTick(char which, double? t, bool snap = false)
+    {
+        if (t is double v)
+        {
+            v = Math.Clamp(v, FullT0, FullT1);
+            if (snap && SnapChannel() is ChannelState c &&
+                TickMeasure.SnapToEdge(c.W, v, Math.Max(8 * (T1 - T0) / Math.Max(1, PlotRect.Width), 3 * c.W.XIncr)) is double s)
+                v = s;
+            t = v;
+        }
+        if (which == 'A') TickA = t; else TickB = t;
+        Invalidate();
+        TicksChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void ClearTicks()
+    {
+        TickA = TickB = null;
+        Invalidate();
+        TicksChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Zooms so that A–B fills 80 % of the screen.</summary>
+    public void ZoomToTicks()
+    {
+        if (TickA is not double a || TickB is not double b || a == b) return;
+        TPerDiv = Math.Clamp(Math.Abs(b - a) / 0.8 / XDiv, MinTPerDiv, MaxTPerDiv);
+        TCenter = (a + b) / 2;
+        ClampCenter();
+        Changed();
+    }
+
+    private ChannelState? SnapChannel() =>
+        _selected is { Visible: true } ? _selected : Channels.FirstOrDefault(c => c.Visible);
+
+    private char? TickHit(Point p)
+    {
+        var r = PlotRect;
+        if (!r.Contains(p)) return null;
+        float X(double t) => (float)(r.Left + (t - T0) / (T1 - T0) * r.Width);
+        if (TickB is double b && Math.Abs(p.X - X(b)) <= 4) return 'B';
+        if (TickA is double a && Math.Abs(p.X - X(a)) <= 4) return 'A';
+        return null;
+    }
+
     private ChannelState? _selected;
     public ChannelState? Selected
     {
@@ -85,8 +161,9 @@ public sealed class WaveformView : Control
         }
     }
 
-    private enum DragMode { None, Pan, Box, Marker }
+    private enum DragMode { None, Pan, Box, Marker, Tick }
     private DragMode _drag;
+    private char _dragTick;
     private int _dragX0, _boxX1;
     private double _dragCenter0;
     private ChannelState? _dragCh;
@@ -120,6 +197,10 @@ public sealed class WaveformView : Control
             if (FullT1 <= FullT0) FullT1 = FullT0 + 1e-9;
             MinDx = Channels.Min(c => c.W.XIncr);
         }
+        // ticks stay (like scope cursors) as long as they fall inside the new record
+        if (TickA is double ta && (ta < FullT0 || ta > FullT1)) TickA = null;
+        if (TickB is double tb && (tb < FullT0 || tb > FullT1)) TickB = null;
+        TicksChanged?.Invoke(this, EventArgs.Empty);
         _selected = Channels.FirstOrDefault();
         SelectionChanged?.Invoke(this, EventArgs.Empty);
         FitTime();
@@ -255,7 +336,7 @@ public sealed class WaveformView : Control
 
         if (!HasData)
         {
-            const string msg = "파형 없음 — [파형 캡처]를 누르세요";
+            string msg = Loc.T("파형 없음 — [파형 캡처]를 누르세요", "No waveforms — press [Capture waveforms]");
             var sz = g.MeasureString(msg, font);
             g.DrawString(msg, font, textBrush, r.Left + (r.Width - sz.Width) / 2, r.Top + (r.Height - sz.Height) / 2);
             return;
@@ -264,9 +345,9 @@ public sealed class WaveformView : Control
         string xUnit = Channels[0].W.XUnit;
 
         // top info line
-        g.DrawString($"{Eng.Format(TPerDiv, xUnit)}/div    중심 {Eng.Format(TCenter, xUnit)}    샘플 간격 {Eng.Format(MinDx, xUnit)}    화면 {PointsInView():N0} pts",
+        g.DrawString($"{Eng.Format(TPerDiv, xUnit)}/div    " + Loc.T("중심 ", "Center ") + Eng.Format(TCenter, xUnit) + "    " + Loc.T("샘플 간격 ", "Sample ") + Eng.Format(MinDx, xUnit) + "    " + Loc.T("화면 ", "On screen ") + $"{PointsInView():N0} pts",
             font, textBrush, r.Left, 4);
-        const string help = "휠: 시간 확대 · 드래그: 이동 · 우클릭 드래그: 구간 확대 · Shift+휠: V/div · 더블클릭: 전체";
+        string help = Loc.T("휠: 시간 확대 · 드래그: 이동 · 우클릭 드래그: 구간 확대 · Shift+휠: V/div · 더블클릭: 전체", "Wheel: zoom · Drag: pan · Right-drag: zoom box · Shift+wheel: V/div · Double-click: fit");
         var hsz = g.MeasureString(help, font);
         using (var dim = new SolidBrush(Color.FromArgb(120, 120, 120)))
             if (r.Right - hsz.Width > r.Left + 560) g.DrawString(help, font, dim, r.Right - hsz.Width, 4);
@@ -317,6 +398,8 @@ public sealed class WaveformView : Control
             g.FillRectangle(sel, a, r.Top, b - a, r.Height);
         }
 
+        DrawTicks(g, r, bold, font);
+
         if (_hover is Point hp && r.Contains(hp) && _drag == DragMode.None)
             DrawReadout(g, r, hp, font, textBrush);
         g.ResetClip();
@@ -348,12 +431,73 @@ public sealed class WaveformView : Control
         g.DrawRectangle(border, r);
     }
 
+    private void DrawTicks(Graphics g, Rectangle r, Font bold, Font font)
+    {
+        if (TickA is null && TickB is null) return;
+        float X(double t) => (float)(r.Left + (t - T0) / (T1 - T0) * r.Width);
+        string xu = Channels[0].W.XUnit;
+
+        // shade A–B
+        if (TickA is double sa && TickB is double sb)
+        {
+            float x0 = Math.Clamp(X(Math.Min(sa, sb)), r.Left, r.Right), x1 = Math.Clamp(X(Math.Max(sa, sb)), r.Left, r.Right);
+            if (x1 > x0) using (var sh = new SolidBrush(Color.FromArgb(28, 255, 255, 255))) g.FillRectangle(sh, x0, r.Top, x1 - x0, r.Height);
+        }
+
+        void One(double? tick, string name, Color col, int row)
+        {
+            if (tick is not double t) return;
+            float x = X(t);
+            using var br = new SolidBrush(col);
+            if (x < r.Left || x > r.Right)
+            {
+                // off screen: arrow at the edge
+                string s = x < r.Left ? $"◀ {name}" : $"{name} ▶";
+                var sz = g.MeasureString(s, bold);
+                g.DrawString(s, bold, br, x < r.Left ? r.Left + 2 : r.Right - sz.Width - 2, r.Top + 2 + row * 18);
+                return;
+            }
+            using var pen = new Pen(col, 1.4f) { DashStyle = name == "B" ? DashStyle.Dash : DashStyle.Solid };
+            g.DrawLine(pen, x, r.Top, x, r.Bottom);
+            string label = $"{name} {Eng.Format(t, xu)}";
+            var lsz = g.MeasureString(label, bold);
+            float lx = x + 3 + lsz.Width > r.Right ? x - 3 - lsz.Width : x + 3;
+            using (var bg = new SolidBrush(Color.FromArgb(200, 0, 0, 0))) g.FillRectangle(bg, lx, r.Top + 2 + row * 18, lsz.Width, lsz.Height);
+            g.DrawString(label, bold, br, lx, r.Top + 2 + row * 18);
+        }
+        One(TickA, "A", TickAColor, 0);
+        One(TickB, "B", TickBColor, 1);
+
+        // Δ box (top right)
+        if (TickA is double a && TickB is double b)
+        {
+            double dt = b - a;
+            var lines = new List<(string, Color)> { ($"Δt = {Eng.Format(dt, xu)}" + (dt != 0 ? $"   1/Δt = {Eng.Format(1 / Math.Abs(dt), "Hz")}" : ""), Color.White) };
+            foreach (var c in Channels.Where(c => c.Visible))
+            {
+                var va = TickMeasure.ValueAt(c.W, a);
+                var vb = TickMeasure.ValueAt(c.W, b);
+                if (va is double x1 && vb is double x2)
+                    lines.Add(($"{c.DisplayName}: A {Eng.Format(x1, c.Unit)}  B {Eng.Format(x2, c.Unit)}  Δ {Eng.Format(x2 - x1, c.Unit)}", c.Color));
+            }
+            float w = lines.Max(l => g.MeasureString(l.Item1, font).Width) + 12, h = lines.Count * 16 + 6;
+            float bx = r.Right - w - 6, by = r.Top + 40;
+            using (var bg = new SolidBrush(Color.FromArgb(210, 15, 15, 15))) g.FillRectangle(bg, bx, by, w, h);
+            using (var bp = new Pen(Color.FromArgb(120, 120, 120))) g.DrawRectangle(bp, bx, by, w, h);
+            for (int k = 0; k < lines.Count; k++)
+                using (var br = new SolidBrush(lines[k].Item2))
+                    g.DrawString(lines[k].Item1, k == 0 ? bold : font, br, bx + 6, by + 3 + k * 16);
+        }
+    }
+
     private void DrawReadout(Graphics g, Rectangle r, Point hp, Font font, Brush textBrush)
     {
         using var linePen = new Pen(Color.FromArgb(160, 255, 255, 255)) { DashStyle = DashStyle.Dash };
         g.DrawLine(linePen, hp.X, r.Top, hp.X, r.Bottom);
         double t = TimeAtX(r, hp.X);
         var lines = new List<(string Text, Brush Brush)> { ($"t = {Eng.Format(t, Channels[0].W.XUnit)}", textBrush) };
+        using var tickBrush = new SolidBrush(TickAColor);
+        if (TickA is double ta) lines.Add(($"t − A = {Eng.Format(t - ta, Channels[0].W.XUnit)}", tickBrush));
         var brushes = new List<SolidBrush>();
         foreach (var c in Channels.Where(c => c.Visible))
         {
@@ -431,9 +575,22 @@ public sealed class WaveformView : Control
         foreach (var (rect, ch) in _labelRects)
             if (rect.Contains(e.Location)) { Selected = ch; return; }
 
+        bool ctrl = ModifierKeys.HasFlag(Keys.Control), shift = ModifierKeys.HasFlag(Keys.Shift);
+        if (ctrl && r.Contains(e.Location) && e.Button is MouseButtons.Left or MouseButtons.Right)
+        {
+            // Ctrl+click = tick A, Ctrl+right-click = tick B (Shift: snap to edge)
+            SetTick(e.Button == MouseButtons.Left ? 'A' : 'B', TimeAtX(r, e.X), shift);
+            return;
+        }
+
         if (e.Button == MouseButtons.Left)
         {
-            if (MarkerHit(e.Location) is ChannelState mc)
+            if (TickHit(e.Location) is char tk)
+            {
+                _drag = DragMode.Tick; _dragTick = tk;
+                Cursor = Cursors.VSplit;
+            }
+            else if (MarkerHit(e.Location) is ChannelState mc)
             {
                 _drag = DragMode.Marker; _dragCh = mc; Selected = mc;
             }
@@ -469,9 +626,15 @@ public sealed class WaveformView : Control
                 _boxX1 = Math.Clamp(e.X, r.Left, r.Right);
                 Invalidate();
                 break;
+            case DragMode.Tick:
+                double tt = Math.Clamp(TimeAtX(r, Math.Clamp(e.X, r.Left, r.Right)), FullT0, FullT1);
+                if (_dragTick == 'A') TickA = tt; else TickB = tt;
+                Invalidate();
+                break;
             default:
                 _hover = e.Location;
-                Cursor = MarkerHit(e.Location) != null ? Cursors.SizeNS : r.Contains(e.Location) ? Cursors.Cross : Cursors.Default;
+                Cursor = MarkerHit(e.Location) != null ? Cursors.SizeNS : TickHit(e.Location) != null ? Cursors.VSplit
+                       : r.Contains(e.Location) ? Cursors.Cross : Cursors.Default;
                 Invalidate();
                 break;
         }
@@ -488,6 +651,12 @@ public sealed class WaveformView : Control
             TCenter = (a + b) / 2;
             ClampCenter();
             Changed();
+        }
+        if (_drag == DragMode.Tick)
+        {
+            _drag = DragMode.None;
+            // commit (and snap with Shift)
+            SetTick(_dragTick, _dragTick == 'A' ? TickA : TickB, ModifierKeys.HasFlag(Keys.Shift));
         }
         _drag = DragMode.None;
         _dragCh = null;
@@ -539,6 +708,13 @@ public sealed class WaveformView : Control
             case Keys.Add or Keys.Oemplus: SetTimePerDiv(Nice.Step(TPerDiv, -1)); break;
             case Keys.Subtract or Keys.OemMinus: SetTimePerDiv(Nice.Step(TPerDiv, 1)); break;
             case Keys.Home: FitTime(); break;
+            case Keys.A or Keys.B when !e.Control && !e.Alt:
+                // at the mouse position if it is over the plot, otherwise at the screen center
+                var r = PlotRect;
+                double t = _hover is Point hp && r.Contains(hp) ? TimeAtX(r, hp.X) : TCenter;
+                SetTick(e.KeyCode == Keys.A ? 'A' : 'B', t, e.Shift);
+                break;
+            case Keys.Escape: ClearTicks(); break;
         }
     }
 }

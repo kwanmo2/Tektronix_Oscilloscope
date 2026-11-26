@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- System.Drawing (그래프 PNG 렌더링)용. 창은 띄우지 않는다. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- visa64.dll(64-bit VISA)을 사용하므로 반드시 x64 -->
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>TekMcp</AssemblyName>
+    <RootNamespace>TekMcp</RootNamespace>
+    <NoWarn>$(NoWarn);SYSLIB1054;CA1416</NoWarn>
+  </PropertyGroup>
+
+  <!-- TekCapture의 VISA/스코프/CSV 코드를 그대로 공유 -->
+  <ItemGroup>
+    <Compile Include="..\TekCapture\Visa.cs" Link="Shared\Visa.cs" />
+    <Compile Include="..\TekCapture\TekScope.cs" Link="Shared\TekScope.cs" />
+    <Compile Include="..\TekCapture\CsvImport.cs" Link="Shared\CsvImport.cs" />
+    <Compile Include="..\TekCapture\Ticks.cs" Link="Shared\Ticks.cs" />
+    <!-- 공유 코드의 메시지 언어. TekMcp는 언어를 바꾸지 않으므로 항상 한국어 -->
+    <Compile Include="..\TekCapture\Loc.cs" Link="Shared\Loc.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" Version="2.4.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+  </ItemGroup>
+
+</Project>

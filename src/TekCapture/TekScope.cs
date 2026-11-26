@@ -106,7 +106,7 @@ public sealed class TekScope : IDisposable
                 _s.Write("HARDCopy STARt");
                 var data = _s.ReadRaw();
                 if (data.Length < 8 || data[0] != 0x89 || data[1] != (byte)'P' || data[2] != (byte)'N' || data[3] != (byte)'G')
-                    throw new InvalidDataException($"PNG 데이터가 아님 ({data.Length} bytes, 시작: {BitConverter.ToString(data, 0, Math.Min(8, data.Length))})");
+                    throw new InvalidDataException(Loc.T("PNG 데이터가 아님", "Not PNG data") + $" ({data.Length} bytes, " + Loc.T("시작: ", "starts with ") + $"{BitConverter.ToString(data, 0, Math.Min(8, data.Length))})");
                 return data;
             }
             finally { _s.TimeoutMs = old; }
@@ -185,12 +185,12 @@ public sealed class TekScope : IDisposable
 
             // IEEE 488.2 definite-length block: #<n><len><data>
             if (raw.Length < 2 || raw[0] != (byte)'#')
-                throw new InvalidDataException($"{source}: 잘못된 CURVe 응답");
+                throw new InvalidDataException($"{source}: " + Loc.T("잘못된 CURVe 응답", "invalid CURVe response"));
             int nDigits = raw[1] - '0';
             int byteLen = int.Parse(Encoding.ASCII.GetString(raw, 2, nDigits), CultureInfo.InvariantCulture);
             int offset = 2 + nDigits;
             if (offset + byteLen > raw.Length)
-                throw new InvalidDataException($"{source}: 데이터 길이 부족 ({raw.Length - offset}/{byteLen})");
+                throw new InvalidDataException($"{source}: " + Loc.T("데이터 길이 부족", "data too short") + $" ({raw.Length - offset}/{byteLen})");
 
             int count = byteLen / 2;
             var y = new float[count];

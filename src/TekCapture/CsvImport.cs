@@ -33,15 +33,15 @@ public static partial class CsvImport
         {
             if (line.Length > 0 && IsNumber(FirstCell(line)))
             {
-                if (header == null) throw new InvalidDataException("헤더 줄이 없습니다.");
+                if (header == null) throw new InvalidDataException(Loc.T("헤더 줄이 없습니다.", "The header line is missing."));
                 break;
             }
             header = line;
         }
-        if (header == null || line == null) throw new InvalidDataException("데이터가 없습니다.");
+        if (header == null || line == null) throw new InvalidDataException(Loc.T("데이터가 없습니다.", "There is no data."));
 
         var heads = SplitHeader(header);
-        if (heads.Count < 2) throw new InvalidDataException("열이 2개 이상이어야 합니다 (시간, 값).");
+        if (heads.Count < 2) throw new InvalidDataException(Loc.T("열이 2개 이상이어야 합니다 (시간, 값).", "At least 2 columns are required (time, value)."));
         bool pairs = heads.Count > 2 && heads.Count % 2 == 0 &&
                      heads.Where((_, i) => i % 2 == 0).All(h => h.Contains("time", StringComparison.OrdinalIgnoreCase));
 
@@ -76,7 +76,7 @@ public static partial class CsvImport
                 for (int k = 0; k < cols.Count; k++)
                     cols[k].Y.Add(k + 1 < cells.Length && float.TryParse(cells[k + 1], NumberStyles.Float, inv, out var y) ? y : float.NaN);
             }
-            if (++row % 1_000_000 == 0) progress?.Report($"  {row:N0} 행 읽음…");
+            if (++row % 1_000_000 == 0) progress?.Report(Loc.T($"  {row:N0} 행 읽음…", $"  {row:N0} rows read…"));
         } while ((line = sr.ReadLine()) != null);
 
         var result = new List<Waveform>();
@@ -87,7 +87,7 @@ public static partial class CsvImport
             int n = Math.Min(t.Count, c.Y.Count);
             if (n < 2) continue;
             double dx = (t[n - 1] - t[0]) / (n - 1);
-            if (!(dx > 0)) throw new InvalidDataException($"{c.Name}: 시간 값이 증가하지 않습니다.");
+            if (!(dx > 0)) throw new InvalidDataException($"{c.Name}: " + Loc.T("시간 값이 증가하지 않습니다.", "time values are not increasing."));
 
             var y = c.Y.Count == n ? c.Y.ToArray() : c.Y.GetRange(0, n).ToArray();
             // fill gaps (NaN) with the previous value so stats/plot stay sane
@@ -103,7 +103,7 @@ public static partial class CsvImport
             w.ComputeStats();
             result.Add(w);
         }
-        if (result.Count == 0) throw new InvalidDataException("읽을 수 있는 파형이 없습니다.");
+        if (result.Count == 0) throw new InvalidDataException(Loc.T("읽을 수 있는 파형이 없습니다.", "No readable waveform found."));
         return result;
     }
 

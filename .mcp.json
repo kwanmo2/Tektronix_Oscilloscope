@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "tekscope": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": ["src/TekMcp/bin/Release/net10.0-windows/TekMcp.dll"]
+    }
+  }
+}
